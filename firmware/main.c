@@ -3,6 +3,14 @@
  * License: CC BY/SA unported.
  * Master prompts with a command of how many bytes to send. Slave (this device) returns that number of random bytes when clock is toggled through. Pretty simple stuff. 
  * Setup in the main routine, everything else is handled in ISRs. One ISR updates the random value, and another ISR handles SPI communication.
+ *
+ * PINOUT:
+ * PB0: MOSI
+ * PB1: MISO
+ * PB2: SCK
+ * PB3: CS/SS (Slave Select)
+ * PB4: Input from RNG hardware.
+ * PB5: /RESET
  */
 
 #include <avr/io.h>
@@ -18,9 +26,12 @@ int main(void)
 {
     WDTCR |= (1<<WDCE) | (WDE);
     WDTCR &= ~(1<<WDE); //disable the watchdog timers.
+
     ADCSRA = 0; //disable the ADC, just in case.
-    PRR |= (1<<PRADC); //power down the ADC.
+    PRR |= (1<<PRADC) | (1<<PRTIM0); //power down the ADC and timer0.
+    ACSR |= ~(1<<ACIE);
     ACSR |= (1<<ACD); //disable the analog comparator.
+    
     cli(); //disable interrupts for the meantime.
     DDRB = (1<<1); //PB1 is MISO pin, everything else is inputs.
     PORTB |= (1<<3); //enable CS pin internal pullup.
@@ -40,9 +51,9 @@ int main(void)
 //if the value sent from the master is from 1-2, then make that the number of bytes of random number to send. 
 //if it isn't, and there is a byte to send, send it, and decrement the byte send counter.
 ISR(USI_OVF_vect) { 
-    uint8_t value = USIDR;
-    if((value>0) && (value<=2)) {
-        BytesToSend = value; 
+    uint8_t value = USIDR;//convert the sent number (which is a character) into the actual number. 
+    if((value>0) && (value<=4)) {
+        BytesToSend = value;
     } else {
         if(BytesToSend >= 0) {
             USIDR=((randomNumber>>(8*BytesToSend-1)) & 0xFF); //load up the next value.
@@ -53,7 +64,7 @@ ISR(USI_OVF_vect) {
 }
 
 ISR(PCINT0_vect) { //pin change vector: only CS pin is enabled, so this must be a transition on CS.
-    if((PORTB & (1<<3))==1) { //CS is high, disable SPI.
+    if((PINB & (1<<3))==1) { //CS is high, disable SPI.
         USICR &= ~(1<<USIWM0); //disable SPI.
     } else { //else CS is low. Time to get into SPI mode!
         USISR |= (1<<USIOIF); //clear overflow interrupt flag, just in case.
@@ -63,7 +74,7 @@ ISR(PCINT0_vect) { //pin change vector: only CS pin is enabled, so this must be 
     
 }
 
-ISR(TIMER1_OVF_vect) {  //triggers on a 7.8KHz clock. ((8MHz/4)/256): 4 for prescaler, 256 for counter.
+ISR(TIMER1_OVF_vect) {  //triggers on a 7.8KHz clock. ((8MHz/4)/256): 4 for prescaler, 256 for counter. Clock input on PB4.
     if((lastbit != (PINB&(1<<4))>>4) && (lastbit != 255)) { //if there are 2 bits, and they aren't equal
        mixInBit(lastbit);
         lastbit = 255; //and start the sequence of capturing another 2 bits.
