@@ -15,12 +15,13 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <stdint.h>
 
 #define mixInBit(bit)	randomNumber = (randomNumber >> 1) | (((bit ^ (randomNumber >> 0) ^ (randomNumber >> 3)) & 1) << 24)
 
-volatile uint8_t BytesToSend; //number of bytes left to send as slave.
-volatile uint32_t randomNumber =0b1010101010101010101010101; //16 bit random number, always being refreshed.
-volatile uint8_t lastbit = 255; //what the last input digit was, or -1 if we want to force a start-over. (after outputting a bit)
+volatile unsigned char counter = 0;
+volatile unsigned long randomNumber = 0b1010101010101010101010101; //32 bit random number, always being refreshed.
+volatile unsigned char lastbit = 255; //what the last input digit was, or 255 if we want to force a start-over. (after outputting a bit)
 
 int main(void)
 {
@@ -36,11 +37,14 @@ int main(void)
     DDRB = (1<<1); //PB1 is MISO pin, everything else is inputs.
     PORTB |= (1<<3); //enable CS pin internal pullup.
     PCMSK = (1<<PCINT3); //pin change interrupt 3 enabled, everything else disabled. (CS pin only)
-    GIMSK = (1<<PCIE); //pin change interrupts enabled in general.
-    TIMSK = (1<<TOIE1); //enable rollover interrupt.
+    GIMSK |= (1<<PCIE); //pin change interrupts enabled in general.
+    
+    TIMSK = (1<<OCIE1A); //enable output compare match interrupt.
+    OCR1A = 0x80; //trigger every 8Mhz/128 = 62500 Hz, oversampling noise at 20Khz or so. 
     GTCCR = 0; //no PWM or anything of the sort.
-    TCCR1 = (1<<CTC1) | (1<<CS11) | (1<<CS10); //reset counter 1, and set clock source to System Clock/4.
-    USICR = (1<<USICS1) | (1<<USIOIE); //SPI via USI: 3-wire mode, clock triggered on positive edge, overflow enabled.
+    TCCR1 = (1<<CS10);// | (1<<CS10); //reset counter 1, and set clock source to System Clock (8Mhz).
+    
+    USICR = (1<<USIWM0) | (1<<USICS1);
     sei(); //re-enable interrupts.
     for(;;){
     }
@@ -51,35 +55,30 @@ int main(void)
 //if the value sent from the master is from 1-2, then make that the number of bytes of random number to send. 
 //if it isn't, and there is a byte to send, send it, and decrement the byte send counter.
 ISR(USI_OVF_vect) { 
-    uint8_t value = USIDR;//convert the sent number (which is a character) into the actual number. 
-    if((value>0) && (value<=4)) {
-        BytesToSend = value;
-    } else {
-        if(BytesToSend >= 0) {
-            USIDR=((randomNumber>>(8*BytesToSend-1)) & 0xFF); //load up the next value.
-            BytesToSend--;
-        }
-    }
+    USIDR = randomNumber & 0xFF;
     USISR |= (1<<USIOIF); //clear overflow register.
 }
 
 ISR(PCINT0_vect) { //pin change vector: only CS pin is enabled, so this must be a transition on CS.
     if((PINB & (1<<3))==1) { //CS is high, disable SPI.
-        USICR &= ~(1<<USIWM0); //disable SPI.
+        DDRB &= ~(1<<1); //MISO pin disable.
+        USICR &= ~(1<<USIOIE);
     } else { //else CS is low. Time to get into SPI mode!
+        DDRB |= (1<<1); //MISO pin re-enable
+        USISR &= 0xF0;
         USISR |= (1<<USIOIF); //clear overflow interrupt flag, just in case.
-        USISR &= ~((1<<USICNT0) | (1<<USICNT1) | (1<<USICNT2) | (1<<USICNT3)); //clear the clock.
-        USICR |= (1<<USIWM0); //re-enable SPI.
-    }
+        USICR |= (1<<USIOIE); //enable the interrupt.  
+}
     
 }
 
-ISR(TIMER1_OVF_vect) {  //triggers on a 7.8KHz clock. ((8MHz/4)/256): 4 for prescaler, 256 for counter. Clock input on PB4.
-    if((lastbit != (PINB&(1<<4))>>4) && (lastbit != 255)) { //if there are 2 bits, and they aren't equal
-       mixInBit(lastbit);
-        lastbit = 255; //and start the sequence of capturing another 2 bits.
+ISR(TIM1_COMPA_vect) {  //triggers on a 31250KHz clock. ((8MHz/256): 1 for prescaler, 256 for counter. random input on PB4.
+    TCNT1=0;
+    if((lastbit != (PINB&(1<<4))) && (lastbit != 255)) { //if there are 2 bits, and they aren't equal
+    mixInBit(lastbit);
+    lastbit = 255; //and start the sequence of capturing another 2 bits.
     } else {
-        lastbit = (PINB&(1<<4))>>4; //capture the first bit.
+        lastbit = (PINB&(1<<4)); //capture the first bit.
+    
     }
-    TIFR |= (1<<TOV1); //reset the timer vector.
 }
