@@ -7459,6 +7459,7 @@ type 0309, grid 2.5 mm</description>
 <pinref part="SUPPLY1" gate="1" pin="V+"/>
 <junction x="15.24" y="104.14"/>
 <junction x="12.7" y="104.14"/>
+<junction x="22.86" y="104.14"/>
 </segment>
 <segment>
 <pinref part="U$2" gate="G$1" pin="VOUT"/>
