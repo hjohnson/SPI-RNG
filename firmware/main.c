@@ -40,7 +40,7 @@ int main(void)
     GIMSK |= (1<<PCIE); //pin change interrupts enabled in general.
     
     TIMSK = (1<<OCIE1A); //enable output compare match interrupt.
-    OCR1A = 0x80; //trigger every 8Mhz/128 = 62500 Hz, oversampling noise, which is around 20Khz or so. 
+    OCR1A = 0x40; //trigger every 8Mhz/128 = 62500 Hz, oversampling noise, which is around 20Khz or so. 
     GTCCR = 0; //no PWM or anything of the sort.
     TCCR1 = (1<<CS10);// | (1<<CS10); //reset counter 1, and set clock source to System Clock (8Mhz).
     

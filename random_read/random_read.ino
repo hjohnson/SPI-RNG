@@ -40,7 +40,7 @@ void setup() {
   delay(1);
   for(ii = 0; ii<num_reads; ii++) { //return a certain number of random values, see above.
     Serial.println(SPI.transfer(0)); //it doesn't matter what the input is, just the response. Print the response.
-    delayMicroseconds(500); //Keep this delay: the SPI RNG needs time to load numbers, etc.
+    delay(1); //Keep this delay: the SPI RNG needs time to load numbers, etc.
   }
   digitalWrite(slaveSelectPin, HIGH); //deselect the SPI RNG.
 }
